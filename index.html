@@ -80,6 +80,9 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 const nameOf=u=>(S.players[u]&&S.players[u].name)||'Player';
 const D=k=>esc(S.drafts[k]??'');
+const normT=s=>String(s).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9 ]/g,' ').trim().replace(/^(the|a|an) /,'').replace(/\s+/g,' ').trim();
+function loadScores(){fetch('scores.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(d=>{if(!d||!d.movies)return;const m=new Map();S.scoreList=[];for(const x of d.movies){if(x.c==null||x.a==null)continue;const k=normT(x.t);m.set(k+'|'+x.y,x);if(!m.has(k))m.set(k,x);S.scoreList.push(x);if(!CATALOG.some(c=>c.k==='movie'&&normT(c.n)===k&&Math.abs((c.y||x.y)-x.y)<=1))CATALOG.push({n:x.t,y:x.y,k:'movie'})}S.scores=m;S.scoresUpdated=d.updated;render()}).catch(()=>{})}
+function lookup(t){if(!S.scores||!t||t.k!=='movie')return null;const k=normT(t.n),y=t.y;let r=y?(S.scores.get(k+'|'+y)||S.scores.get(k+'|'+(y-1))||S.scores.get(k+'|'+(y+1))):null;if(!r&&y)r=S.scoreList.find(x=>Math.abs(x.y-y)<=1&&normT(x.t).startsWith(k+' '));return r||S.scores.get(k)||null}
 
 async function init(){
   S.drafts.name=ls.get('gts-name')||'';
@@ -92,6 +95,7 @@ async function init(){
   }catch(e){clearTimeout(t);S.status='nodb';S.err=e&&e.code||'';render();return}
   clearTimeout(t);
   S.status='ready';
+  loadScores();
   window.addEventListener('hashchange',fromHash);
   fromHash();
 }
@@ -223,6 +227,7 @@ async function act(a,ds){
   if(a==='lock'){const c=num(S.drafts.gc,0,100,true),aa=num(S.drafts.ga,0,100,true);
     if(c==null||aa==null){S.toast='Enter both scores as whole numbers from 0 to 100.';render();return}
     return w(()=>pref().update({r:{[String(g.round)]:{c,a:aa}}}))}
+  if(a==='autoReveal'){const f=lookup(g.title);if(!f)return;return w(()=>gref().update({actual:{c:f.c,a:f.a},actualT:f.i??null}))}
   if(a==='actual'){const c=num(S.drafts.ac,0,100,true),aa=num(S.drafts.aa,0,100,true);
     if(c==null||aa==null){S.toast='Enter both real scores (0 to 100).';render();return}
     return w(()=>gref().update({actual:{c,a:aa}}))}
@@ -353,8 +358,10 @@ function play(){
     const showT=!!(x.calc&&x.calc.leaders.length>1);
     const hideT=x.stage==='tiebreak';
     const gs={};x.order.forEach(u=>gs[u]={c:x.guesses[u].c,a:x.guesses[u].a,t:hideT?(x.guesses[u].t!=null&&x.calc.leaders.includes(u)?'✓':null):x.guesses[u].t});
-    h+=`<div class="card">${grid(T.n,x.order,nameOf,gs,g.actual,g.actualT,x.stage==='actual'?null:x.calc,showT)}`;
-    if(x.stage==='actual'){
+    h+=`<div class="card">${grid(T.n,x.order,nameOf,gs,g.actual,hideT?null:g.actualT,x.stage==='actual'?null:x.calc,showT)}`;
+    if(x.stage==='actual'&&lookup(T)){
+      h+=`<p class="sub" style="margin-top:14px">Everyone's locked in. The real scores are ready.</p><button class="p" data-act="autoReveal" ${B}>Reveal winner</button><p class="muted">Scores from Rotten Tomatoes and IMDb, updated ${esc(S.scoresUpdated||'')}.</p>`;
+    }else if(x.stage==='actual'){
       h+=`<h2 style="margin-top:16px">Enter the real scores</h2><p class="sub">${rtLink(T)}. Anyone can enter them.</p>
       <div class="row"><div><label for="ac">Critic %</label><input id="ac" inputmode="numeric" value="${D('ac')}"></div><div><label for="aa">Audience %</label><input id="aa" inputmode="numeric" value="${D('aa')}"></div></div>
       <button class="p" data-act="actual" ${B}>Reveal winner</button>`;
