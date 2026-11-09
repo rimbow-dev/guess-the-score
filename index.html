@@ -81,7 +81,7 @@ const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k
 const nameOf=u=>(S.players[u]&&S.players[u].name)||'Player';
 const D=k=>esc(S.drafts[k]??'');
 const normT=s=>String(s).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9 ]/g,' ').trim().replace(/^(the|a|an) /,'').replace(/\s+/g,' ').trim();
-function loadScores(){fetch('scores.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(d=>{if(!d||!d.movies)return;const m=new Map();S.scoreList=[];for(const x of d.movies){if(x.c==null||x.a==null)continue;const k=normT(x.t);m.set(k+'|'+x.y,x);if(!m.has(k))m.set(k,x);S.scoreList.push(x);if(!CATALOG.some(c=>c.k==='movie'&&normT(c.n)===k&&Math.abs((c.y||x.y)-x.y)<=1))CATALOG.push({n:x.t,y:x.y,k:'movie'})}S.scores=m;S.scoresUpdated=d.updated;render()}).catch(()=>{})}
+function loadScores(){fetch('scores.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(d=>{if(!d||!d.movies)return;const m=new Map();S.scoreList=[];for(const x of d.movies){if(x.c==null||x.a==null)continue;const k=normT(x.t);m.set(k+'|'+x.y,x);if(!m.has(k))m.set(k,x);S.scoreList.push(x);if(!CATALOG.some(c=>c.k==='movie'&&normT(c.n)===k&&Math.abs((c.y||x.y)-x.y)<=1))CATALOG.push({n:x.t,y:x.y,k:'movie'})}S.scores=m;S.scoredTitles=S.scoreList.map(x=>({n:x.t,y:x.y,k:'movie'})).sort((a,b)=>a.n.localeCompare(b.n));S.scoresUpdated=d.updated;render()}).catch(()=>{})}
 function lookup(t){if(!S.scores||!t||t.k!=='movie')return null;const k=normT(t.n),y=t.y;let r=y?(S.scores.get(k+'|'+y)||S.scores.get(k+'|'+(y-1))||S.scores.get(k+'|'+(y+1))):null;if(!r&&y)r=S.scoreList.find(x=>Math.abs(x.y-y)<=1&&normT(x.t).startsWith(k+' '));return r||S.scores.get(k)||null}
 
 async function init(){
@@ -181,7 +181,7 @@ function score(g,order,guesses){
 }
 function pool(g,extraRejected){
   const c=g.settings.content,played=(g.history||[]).map(h=>h.title.n),rej=(g.rejected||[]).concat(extraRejected||[]);
-  return CATALOG.filter(t=>(c==='both'||(c==='movies'?t.k==='movie':t.k==='tv'))&&!played.includes(t.n)&&!rej.includes(t.n));
+  return (S.scoredTitles||CATALOG).filter(t=>(S.scoredTitles||c==='both'||(c==='movies'?t.k==='movie':t.k==='tv'))&&!played.includes(t.n)&&!rej.includes(t.n));
 }
 function appPick(g,extra){
   const order=g.order||[];
@@ -218,7 +218,7 @@ async function act(a,ds){
     return w(()=>gref().update({phase:'play',order,round:0,title:null,rejected:[],actual:null,actualT:null}))}
   if(a==='known')return w(()=>pref().update({known:{[ds.n]:ds.v==='1'}}));
   if(a==='pick'||a==='pickCustom'){
-    let t;if(a==='pick')t=CATALOG.find(x=>x.n===ds.n);else{const n=(S.drafts.custom||'').trim();if(!n){S.toast='Type a title first.';render();return}t={n:n.slice(0,80),y:null,k:S.drafts.kind==='tv'?'tv':'movie'}}
+    let t;if(a==='pick')t=(S.scoredTitles||CATALOG).find(x=>x.n===ds.n);else{const n=(S.drafts.custom||'').trim();if(!n){S.toast='Type a title first.';render();return}t={n:n.slice(0,80),y:null,k:S.drafts.kind==='tv'?'tv':'movie'}}
     if(!t)return;const R=rk(g);
     return w(async()=>{await gref().update({title:t});await pref().update({r:{[R]:{seen:true,seenFor:t.n}},known:{[t.n]:true}})})}
   if(a==='deal'){const t=appPick(g);if(!t){S.toast='Out of titles for this setting. Switch to "You pick" to add your own.';render();return}
@@ -282,14 +282,14 @@ function lobby(){
   h+=`<div class="card"><h2>Settings</h2>${admin?'':'<p class="sub">Only jordan can change these.</p>'}
   <label>Who picks</label>${seg('pick',g.settings.pick,[['you','You pick'],['app','App picks']],admin)}
   <label>Guessing</label>${seg('mode',g.settings.mode,[['sealed','Sealed'],['open','Open']],admin)}
-  <label>What's in play</label>${seg('content',g.settings.content,[['movies','Movies'],['tv','TV seasons'],['both','Both']],admin)}
+  ${S.scoredTitles?'':`<label>What's in play</label>${seg('content',g.settings.content,[['movies','Movies'],['tv','TV seasons'],['both','Both']],admin)}`}
   ${admin?`<button class="p" data-act="start" ${S.busy||ps.length<2?'disabled':''}>Start game</button>${ps.length<2?'<p class="muted">Waiting for at least one more player.</p>':''}`:'<p class="muted">Waiting for jordan to start the game.</p>'}</div>`;
   if(inGame)h+=swipe();
   return h;
 }
 function swipe(){
   const g=S.game,known=(S.players[S.me]||{}).known||{},c=g.settings.content;
-  const list=CATALOG.filter(t=>c==='both'||(c==='movies'?t.k==='movie':t.k==='tv'));
+  const list=S.scoredTitles||CATALOG.filter(t=>c==='both'||(c==='movies'?t.k==='movie':t.k==='tv'));
   const done=list.filter(t=>known[t.n]!==undefined).length,t=list.find(t=>known[t.n]===undefined);
   if(!t)return `<div class="card"><h2>Quick swipe</h2><p class="sub">You've gone through all ${list.length} titles.</p></div>`;
   return `<div class="card"><h2>Quick swipe while you wait</h2><p class="sub">Helps the app suggest titles everyone has seen. ${done} done.</p>
@@ -323,10 +323,10 @@ function play(){
         const q=(S.drafts.search||'').toLowerCase();
         const items=pool(g).filter(t=>!q||t.n.toLowerCase().includes(q)).slice(0,40);
         h+=`<p class="sub">Choose something you think everyone has seen.</p><input id="search" value="${D('search')}" placeholder="Search titles" autocomplete="off">
-        <div class="list">${items.map(t=>`<div class="li" data-act="pick" data-n="${esc(t.n)}"><span>${esc(t.n)}</span><small>${t.y||''}</small></div>`).join('')||'<p class="sub">No matches in the list. Add it below.</p>'}</div>
+        <div class="list">${items.map(t=>`<div class="li" data-act="pick" data-n="${esc(t.n)}"><span>${esc(t.n)}</span><small>${t.y||''}</small></div>`).join('')||'<p class="sub">No matches.</p>'}</div>${S.scoredTitles?'':`
         <label for="custom">Not in the list?</label><input id="custom" value="${D('custom')}" placeholder="Title (add 'Season 2' for TV)">
         <div class="seg" style="margin-top:8px"><button class="${S.drafts.kind!=='tv'?'on':''}" data-act="kind" data-v="movie">Movie</button><button class="${S.drafts.kind==='tv'?'on':''}" data-act="kind" data-v="tv">TV season</button></div>
-        <button class="p" data-act="pickCustom" ${B}>Use this title</button>`;
+        <button class="p" data-act="pickCustom" ${B}>Use this title</button>`}`;
       }else h+=`<p class="sub">Waiting for their pick.</p>${inGame?'<button class="s" data-act="pickFor">Pick for them</button>':''}`;
       h+='</div>';
     }
