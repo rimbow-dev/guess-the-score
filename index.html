@@ -99,11 +99,12 @@ async function init(){
   window.addEventListener('hashchange',fromHash);
   fromHash();
 }
-function fromHash(){
-  const m=/^#g-([A-Z0-9]{4})$/.exec(location.hash);
-  const code=m?m[1]:null;
-  if(code!==S.code)openGame(code);else render();
-}
+function fromHash(){if(S.code!=='MAIN')openGame('MAIN');else render()}
+const freshGame=()=>({phase:'lobby',gid:String(Date.now()),settings:{mode:'sealed',pick:'you',content:'movies'},order:[],round:0,title:null,rejected:[],actual:null,actualT:null,history:[],created:Date.now()});
+const isAdminName=n=>(n||'').trim()==='jordan';
+const inLobby=u=>{const p=S.players[u];return !!p&&!!S.game&&p.gid===S.game.gid};
+const isAdmin=()=>isAdminName((S.players[S.me]||{}).name);
+const rk=g=>(g.gid||'')+'-'+g.round;
 function openGame(code){
   if(S.unG)S.unG();if(S.unP)S.unP();
   S.code=code;S.game=null;S.players={};S.loaded=false;S.hist=false;
@@ -113,6 +114,7 @@ function openGame(code){
   S.unG=S.db.doc('games/'+code).onSnapshot(s=>{
     if(!s.metadata.fromCache||s.exists){clearTimeout(lt);S.loaded=true}
     S.game=s.exists?s.data():null;
+    if(!s.exists&&!s.metadata.fromCache&&!S.creating){S.creating=true;S.db.doc('games/'+code).set(freshGame()).catch(()=>{}).finally(()=>{S.creating=false})}
     if(S.game&&S.game.round!==S.lastRound){S.lastRound=S.game.round;['gc','ga','gt','ac','aa','at','search','custom','pickFor'].forEach(k=>delete S.drafts[k])}
     render();
   },e=>{clearTimeout(lt);S.loaded=true;S.toast='Lost connection to the game. Reopen the page.';render()});
@@ -135,12 +137,13 @@ function needName(){const n=(S.drafts.name||'').trim();if(!n){S.toast='Enter you
 
 async function joinAs(code,name){
   const p=S.db.doc('games/'+code+'/players/'+S.me);const s=await p.get();
-  if(s.exists)await p.update({name});else await p.set({name,joinedAt:Date.now(),known:{},r:{}});
+  const gid=(S.game&&S.game.gid)||'';
+  if(s.exists)await p.update({name,gid,joinedAt:s.data().gid===gid?s.data().joinedAt:Date.now()});else await p.set({name,gid,joinedAt:Date.now(),known:{},r:{}});
 }
 
 /* ---------- game logic ---------- */
 function ctx(){
-  const g=S.game,order=g.order||[],n=order.length,R=String(g.round);
+  const g=S.game,order=g.order||[],n=order.length,R=rk(g);
   const k=g.round%(2*n),pickIdx=k<n?k:2*n-1-k,picker=order[pickIdx];
   const rot=g.round%n,openOrder=order.slice(rot).concat(order.slice(0,rot));
   const pr=u=>((S.players[u]||{}).r||{})[R]||{};
@@ -207,39 +210,40 @@ async function act(a,ds){
   if(a==='joinHere'){const name=needName();if(!name)return;return w(()=>joinAs(S.code,name))}
   if(a==='home'){location.hash='';return}
   if(a==='resume'){location.hash='g-'+ds.c;return}
-  if(a==='copy'){const t=location.origin+location.pathname+'#g-'+S.code;try{if(navigator.share){await navigator.share({title:'Guess the Score',text:'Join my game: code '+S.code,url:t})}else{await navigator.clipboard.writeText(t);S.toast='Invite link copied'}}catch(e){if(e&&e.name!=='AbortError')S.toast='Send this link: '+t}render();return}
-  if(a==='set')return w(()=>gref().update({settings:{[ds.k]:ds.v}}));
-  if(a==='start'){const order=Object.entries(S.players).sort((x,y)=>x[1].joinedAt-y[1].joinedAt).map(e=>e[0]);
+  if(a==='copy'){const t=location.origin+location.pathname;try{if(navigator.share){await navigator.share({title:'Guess the Score',text:'Join the movie score game',url:t})}else{await navigator.clipboard.writeText(t);S.toast='Invite link copied'}}catch(e){if(e&&e.name!=='AbortError')S.toast='Send this link: '+t}render();return}
+  if(a==='newGame'&&isAdmin())return w(()=>gref().update({phase:'lobby',gid:String(Date.now()),order:[],round:0,title:null,rejected:[],actual:null,actualT:null,history:[]}));
+  if(a==='set'&&isAdmin())return w(()=>gref().update({settings:{[ds.k]:ds.v}}));
+  if(a==='start'&&isAdmin()){const order=Object.entries(S.players).filter(([u])=>inLobby(u)).sort((x,y)=>x[1].joinedAt-y[1].joinedAt).map(e=>e[0]);
     if(order.length<2){S.toast='You need at least 2 players.';render();return}
     return w(()=>gref().update({phase:'play',order,round:0,title:null,rejected:[],actual:null,actualT:null}))}
   if(a==='known')return w(()=>pref().update({known:{[ds.n]:ds.v==='1'}}));
   if(a==='pick'||a==='pickCustom'){
     let t;if(a==='pick')t=CATALOG.find(x=>x.n===ds.n);else{const n=(S.drafts.custom||'').trim();if(!n){S.toast='Type a title first.';render();return}t={n:n.slice(0,80),y:null,k:S.drafts.kind==='tv'?'tv':'movie'}}
-    if(!t)return;const R=String(g.round);
+    if(!t)return;const R=rk(g);
     return w(async()=>{await gref().update({title:t});await pref().update({r:{[R]:{seen:true,seenFor:t.n}},known:{[t.n]:true}})})}
   if(a==='deal'){const t=appPick(g);if(!t){S.toast='Out of titles for this setting. Switch to "You pick" to add your own.';render();return}
     return w(()=>gref().update({title:t}))}
-  if(a==='seen'){const R=String(g.round),v=ds.v==='1';
+  if(a==='seen'){const R=rk(g),v=ds.v==='1';
     return w(()=>pref().update({r:{[R]:{seen:v,seenFor:g.title.n}},known:{[g.title.n]:v}}))}
   if(a==='another'){const rej=(g.rejected||[]).concat([g.title.n]);
     if(g.settings.pick==='app'){const t=appPick(g,[g.title.n]);return w(()=>gref().update({rejected:rej,title:t||null}))}
     return w(()=>gref().update({rejected:rej,title:null}))}
   if(a==='lock'){const c=num(S.drafts.gc,0,100,true),aa=num(S.drafts.ga,0,100,true);
     if(c==null||aa==null){S.toast='Enter both scores as whole numbers from 0 to 100.';render();return}
-    return w(()=>pref().update({r:{[String(g.round)]:{c,a:aa}}}))}
+    return w(()=>pref().update({r:{[rk(g)]:{c,a:aa}}}))}
   if(a==='autoReveal'){const f=lookup(g.title);if(!f)return;return w(()=>gref().update({actual:{c:f.c,a:f.a},actualT:f.i??null}))}
   if(a==='actual'){const c=num(S.drafts.ac,0,100,true),aa=num(S.drafts.aa,0,100,true);
     if(c==null||aa==null){S.toast='Enter both real scores (0 to 100).';render();return}
     return w(()=>gref().update({actual:{c,a:aa}}))}
   if(a==='lockT'){const t=num(S.drafts.gt,1,10,false);if(t==null){S.toast='Enter an IMDb rating from 1.0 to 10.0.';render();return}
-    return w(()=>pref().update({r:{[String(g.round)]:{t}}}))}
+    return w(()=>pref().update({r:{[rk(g)]:{t}}}))}
   if(a==='actualT'){const t=num(S.drafts.at,1,10,false);if(t==null){S.toast='Enter the real IMDb rating (1.0 to 10.0).';render();return}
     return w(()=>gref().update({actualT:t}))}
   if(a==='next'){const x=ctx();if(x.stage!=='result')return;
     const names={},gs={};x.order.forEach(u=>{names[u]=nameOf(u);gs[u]=x.guesses[u]});
     const entry={title:g.title,actual:g.actual,actualT:g.actualT??null,guesses:JSON.parse(JSON.stringify(gs)),names,cWin:x.calc.cWin,aWin:x.calc.aWin,tWin:x.calc.tWin,winners:x.calc.winners};
     return w(()=>gref().update({history:(g.history||[]).concat([entry]),round:g.round+1,title:null,rejected:[],actual:null,actualT:null}))}
-  if(a==='end')return w(()=>gref().update({phase:'done'}));
+  if(a==='end'&&isAdmin())return w(()=>gref().update({phase:'done'}));
   if(a==='hist'){S.hist=!S.hist;render();return}
 }
 function num(v,lo,hi,int){if(v==null||String(v).trim()==='')return null;const x=Number(String(v).replace(',','.'));if(!isFinite(x)||x<lo||x>hi)return null;return int?Math.round(x):Math.round(x*10)/10}
@@ -252,7 +256,7 @@ function view(){
   if(S.status==='nodb')return '<h1>Guess the Score</h1><div class="card">Couldn\'t connect to the game server'+(S.err?' ('+esc(S.err)+')':'')+'. Check that Anonymous sign-in is turned on in Firebase, then reload.</div>';
   if(!S.code)return home();
   if(!S.loaded)return '<h1>Guess the Score</h1><p class="sub">Loading game '+esc(S.code)+'…</p>';
-  if(!S.game)return '<h1>Guess the Score</h1><div class="card">No game with code <b>'+esc(S.code)+'</b>.<button data-act="home">Back</button></div>';
+  if(!S.game)return '<h1>Guess the Score</h1><p class="sub">Setting up the game…</p>';
   const g=S.game;
   if(g.phase==='lobby')return lobby();
   if(g.phase==='done')return done();
@@ -269,17 +273,17 @@ function home(){
 }
 function seg(k,cur,opts,can){return '<div class="seg">'+opts.map(([v,l])=>`<button ${can?'':'disabled'} class="${cur===v?'on':''}" data-act="set" data-k="${k}" data-v="${v}">${l}</button>`).join('')+'</div>'}
 function lobby(){
-  const g=S.game,host=g.hostId===S.me,inGame=!!S.players[S.me];
-  const ps=Object.entries(S.players).sort((a,b)=>a[1].joinedAt-b[1].joinedAt);
-  let h=`<h1>Lobby</h1><p class="sub">Send your friends the invite link. Anyone with it can join.</p>
-  <div class="card"><div class="code">${esc(S.code)}</div><button class="s" data-act="copy" style="display:block;margin:6px auto 0">Send invite link</button></div>`;
-  if(!inGame)h+=`<div class="card"><label for="name">Your name</label><input id="name" maxlength="20" value="${D('name')}"><button class="p" data-act="joinHere" ${S.busy?'disabled':''}>Join this game</button></div>`;
-  h+=`<div class="card"><h2>Players (${ps.length})</h2>${ps.map(([u,p])=>`<div class="pl"><span>${esc(p.name)}${u===S.me?' (you)':''}</span>${u===g.hostId?'<span class="tag">host</span>':''}</div>`).join('')||'<p class="sub">Nobody yet.</p>'}</div>`;
-  h+=`<div class="card"><h2>Settings</h2>${host?'':'<p class="sub">The host sets these.</p>'}
-  <label>Who picks</label>${seg('pick',g.settings.pick,[['you','You pick'],['app','App picks']],host)}
-  <label>Guessing</label>${seg('mode',g.settings.mode,[['sealed','Sealed'],['open','Open']],host)}
-  <label>What's in play</label>${seg('content',g.settings.content,[['movies','Movies'],['tv','TV seasons'],['both','Both']],host)}
-  ${host?`<button class="p" data-act="start" ${S.busy||ps.length<2?'disabled':''}>Start game</button>${ps.length<2?'<p class="muted">Waiting for at least one more player.</p>':''}`:'<p class="muted">Waiting for the host to start.</p>'}</div>`;
+  const g=S.game,admin=isAdmin(),inGame=inLobby(S.me);
+  const ps=Object.entries(S.players).filter(([u])=>inLobby(u)).sort((a,b)=>a[1].joinedAt-b[1].joinedAt);
+  let h=`<h1>Guess the Score</h1><p class="sub">Everyone with the link joins this same game.</p>`;
+  if(!inGame)h+=`<div class="card"><label for="name">Your name</label><input id="name" maxlength="20" value="${D('name')}" placeholder="e.g. Brooklyn" autocomplete="nickname"><button class="p" data-act="joinHere" ${S.busy?'disabled':''}>Join the game</button></div>`;
+  else h+=`<button class="s" data-act="copy" style="margin-top:10px">Send invite link</button>`;
+  h+=`<div class="card"><h2>Players (${ps.length})</h2>${ps.map(([u,p])=>`<div class="pl"><span>${esc(p.name)}${u===S.me?' (you)':''}</span>${isAdminName(p.name)?'<span class="tag">runs the game</span>':''}</div>`).join('')||'<p class="sub">Nobody yet.</p>'}</div>`;
+  h+=`<div class="card"><h2>Settings</h2>${admin?'':'<p class="sub">Only jordan can change these.</p>'}
+  <label>Who picks</label>${seg('pick',g.settings.pick,[['you','You pick'],['app','App picks']],admin)}
+  <label>Guessing</label>${seg('mode',g.settings.mode,[['sealed','Sealed'],['open','Open']],admin)}
+  <label>What's in play</label>${seg('content',g.settings.content,[['movies','Movies'],['tv','TV seasons'],['both','Both']],admin)}
+  ${admin?`<button class="p" data-act="start" ${S.busy||ps.length<2?'disabled':''}>Start game</button>${ps.length<2?'<p class="muted">Waiting for at least one more player.</p>':''}`:'<p class="muted">Waiting for jordan to start the game.</p>'}</div>`;
   if(inGame)h+=swipe();
   return h;
 }
@@ -304,7 +308,7 @@ const rtLink=t=>`<a href="https://www.rottentomatoes.com/search?search=${encodeU
 const imdbLink=t=>`<a href="https://www.imdb.com/find/?q=${encodeURIComponent(t.n.replace(/ — .*/,''))}" target="_blank" rel="noopener">Look it up on IMDb</a>`;
 function play(){
   const x=ctx(),g=x.g,me=S.me,inGame=x.order.includes(me),B=S.busy?'disabled':'';
-  let h=`<div class="row" style="align-items:center"><div><h1>Round ${g.round+1}</h1><p class="sub">${g.settings.mode==='sealed'?'Sealed':'Open'} · ${g.settings.pick==='you'?'You pick':'App picks'} · code ${esc(S.code)}</p></div>
+  let h=`<div class="row" style="align-items:center"><div><h1>Round ${g.round+1}</h1><p class="sub">${g.settings.mode==='sealed'?'Sealed':'Open'} · ${g.settings.pick==='you'?'You pick':'App picks'}</p></div>
   <div style="flex:0"><button class="s" data-act="hist">${S.hist?'Hide':'Rounds'}</button></div></div>${standings(g)}`;
   if(!inGame)h+='<p class="muted">You\'re watching. This game started before you joined.</p>';
   if(S.hist)h+=history(g);
@@ -382,8 +386,7 @@ function play(){
     }
     h+='</div>';
   }
-  if(g.hostId===me)h+=`<button class="s" data-act="end" style="margin-top:18px">End game</button>`;
-  h+=`<p class="muted"><a href="#" data-act="home">Leave this screen</a></p>`;
+  if(isAdmin())h+=`<button class="s" data-act="end" style="margin-top:18px">End game</button>`;
   return h;
 }
 function guessForm(){return `<div class="row"><div><label for="gc">Critic %</label><input id="gc" inputmode="numeric" value="${D('gc')}" placeholder="0–100"></div><div><label for="ga">Audience %</label><input id="ga" inputmode="numeric" value="${D('ga')}" placeholder="0–100"></div></div><button class="p" data-act="lock" ${S.busy?'disabled':''}>Lock in</button>`}
@@ -393,7 +396,7 @@ function history(g){
     return '<div class="card">'+grid(e.title.n,order,u=>e.names[u]||'Player',e.guesses,e.actual,e.actualT,{cWin:e.cWin||[],aWin:e.aWin||[],tWin:e.tWin||[],winners:e.winners||[]},showT)+'</div>'}).join('');
 }
 function done(){const g=S.game,w=wins(g),top=Math.max(0,...Object.values(w)),champs=(g.order||[]).filter(u=>w[u]===top&&top>0);
-  return `<h1>Game over</h1>${champs.length?`<p class="banner">${champs.map(u=>esc(nameOf(u))).join(' & ')} ${champs.length>1?'tie':'wins'} with ${top}</p>`:''}${standings(g)}${history(g)}<button class="p" data-act="home">New game</button>`}
+  return `<h1>Game over</h1>${champs.length?`<p class="banner">${champs.map(u=>esc(nameOf(u))).join(' & ')} ${champs.length>1?'tie':'wins'} with ${top}</p>`:''}${standings(g)}${history(g)}${isAdmin()?'<button class="p" data-act="newGame">New game</button>':'<p class="muted">Waiting for jordan to start a new game.</p>'}`}
 
 function render(){
   const a=document.activeElement,id=a&&a.id;let ss=null,se=null;try{ss=a.selectionStart;se=a.selectionEnd}catch(e){}
