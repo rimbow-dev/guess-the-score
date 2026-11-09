@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Guess the Score</title>
+<style>
+:root{--bg:#0c0c10;--card:#17171e;--line:#2a2a35;--ink:#f4f4f6;--quiet:#9a9aa8;--acc:#d946ef;--acc2:#3b1640;--good:#34d399;--bad:#f87171}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+#app{max-width:520px;margin:0 auto;padding:calc(16px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom))}
+h1{font-size:26px;margin:4px 0 2px}
+h2{font-size:19px;margin:0 0 10px}
+.sub{color:var(--quiet);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:14px 0}
+label{display:block;font-size:13px;color:var(--quiet);margin:10px 0 4px}
+input,select{width:100%;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:#101016;color:var(--ink);font-size:17px}
+input:focus{outline:2px solid var(--acc);border-color:transparent}
+button{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:14px 16px;font-size:17px;font-weight:600;background:#262631;color:var(--ink);width:100%;margin-top:10px}
+button.p{background:var(--acc);color:#fff}
+button.s{width:auto;padding:8px 12px;font-size:14px;margin:0}
+button:disabled{opacity:.45}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.seg{display:flex;background:#101016;border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{margin:0;padding:9px 6px;font-size:14px;background:transparent;color:var(--quiet)}
+.seg button.on{background:var(--acc2);color:var(--ink)}
+.code{font-size:44px;font-weight:800;letter-spacing:8px;text-align:center;color:var(--acc)}
+.pl{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.pl:last-child{border:0}
+.tag{font-size:12px;color:var(--quiet);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+.ok{color:var(--good)}.no{color:var(--bad)}
+.title{font-size:28px;font-weight:800;text-align:center;margin:6px 0}
+.poster{background:linear-gradient(160deg,#2a1230,#121220);border:1px solid var(--line);border-radius:16px;padding:28px 16px;text-align:center}
+table{width:100%;border-collapse:collapse;font-size:16px}
+td,th{border:1px solid var(--line);padding:9px 8px;text-align:left}
+th{color:var(--quiet);font-weight:600;font-size:14px}
+td.w,.nm.w{color:var(--acc);background:var(--acc2);font-weight:700}
+tr.ans td{font-weight:800}
+.banner{text-align:center;font-size:20px;font-weight:800;padding:14px;border-radius:14px;background:var(--acc2);color:var(--ink);margin:12px 0}
+.toast{position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));max-width:500px;margin:0 auto;background:#3a1d22;border:1px solid #6b2a33;color:#fff;padding:12px 14px;border-radius:12px;font-size:15px;display:flex;gap:10px;align-items:center;z-index:9}
+.toast span{flex:1}
+.list{max-height:300px;overflow:auto;margin-top:8px}
+.li{display:flex;justify-content:space-between;align-items:center;padding:11px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.li small{color:var(--quiet)}
+a{color:var(--acc)}
+.stand{display:flex;gap:8px;flex-wrap:wrap}
+.stand div{background:#101016;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:14px}
+.stand b{color:var(--acc)}
+.muted{color:var(--quiet);font-size:14px;margin-top:8px}
+.big2{display:flex;gap:10px}.big2 button{font-size:19px;padding:18px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+/* ====== PASTE YOUR FIREBASE CONFIG HERE ====== */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDje6oimgbpSBb1hbQSvKbCP6Kuy1U0UtM",
+  authDomain: "guess-the-score-99f55.firebaseapp.com",
+  projectId: "guess-the-score-99f55",
+  appId: "1:378170301020:web:6ec2bddf78878ffdb86499"
+};
+/* ============================================= */
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {getFirestore,doc,collection,getDoc,setDoc,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import {getAuth,signInAnonymously,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+const wrap=s=>({id:s.id,exists:s.exists(),data:()=>s.data(),metadata:s.metadata});
+function makeDB(fs){return{
+  doc(p){const r=doc(fs,p);return{get:async()=>wrap(await getDoc(r)),set:d=>setDoc(r,d),update:d=>setDoc(r,d,{merge:true}),onSnapshot:(n,e)=>onSnapshot(r,{includeMetadataChanges:false},s=>n(wrap(s)),e)}},
+  collection(p){const r=collection(fs,p);return{onSnapshot:(n,e)=>onSnapshot(r,q=>n({docs:q.docs.map(wrap)}),e)}}}}
+const CATALOG=[
+["The Shining",1980],["Django Unchained",2012],["Anchorman",2004],["The Avengers",2012],["A Christmas Story",1983],["WALL-E",2008],["Snow White and the Seven Dwarfs",1937],["The Wizard of Oz",1939],["Harry Potter and the Chamber of Secrets",2002],["Jurassic Park",1993],["Titanic",1997],["The Lion King",1994],["Toy Story",1995],["Shrek",2001],["Finding Nemo",2003],["The Dark Knight",2008],["Inception",2010],["The Matrix",1999],["Forrest Gump",1994],["Pulp Fiction",1994],["The Godfather",1972],["Star Wars",1977],["Back to the Future",1985],["Home Alone",1990],["Elf",2003],["Mean Girls",2004],["Superbad",2007],["The Hangover",2009],["Step Brothers",2008],["Talladega Nights",2006],["Napoleon Dynamite",2004],["Pirates of the Caribbean: The Curse of the Black Pearl",2003],["The Lord of the Rings: The Fellowship of the Ring",2001],["Spider-Man",2002],["Spider-Man: Into the Spider-Verse",2018],["Black Panther",2018],["Avengers: Endgame",2019],["Iron Man",2008],["Guardians of the Galaxy",2014],["Frozen",2013],["Up",2009],["Inside Out",2015],["Coco",2017],["The Incredibles",2004],["Monsters, Inc.",2001],["Get Out",2017],["The Conjuring",2013],["It",2017],["Scream",1996],["Jaws",1975],["E.T. the Extra-Terrestrial",1982],["Ghostbusters",1984],["Ferris Bueller's Day Off",1986],["The Breakfast Club",1985],["Grease",1978],["Top Gun: Maverick",2022],["Gladiator",2000],["Fight Club",1999],["The Shawshank Redemption",1994],["Interstellar",2014],["Avatar",2009],["Barbie",2023],["Oppenheimer",2023],["Dune",2021],["Joker",2019],["The Lego Movie",2014],["Space Jam",1996],["Twilight",2008],["The Hunger Games",2012],["The Fast and the Furious",2001],["John Wick",2014],["Mad Max: Fury Road",2015],["Knives Out",2019],["Bridesmaids",2011],["21 Jump Street",2012],["Friday",1995],["Bad Boys",1995],["Men in Black",1997],["Independence Day",1996],["Rush Hour",1998],["Despicable Me",2010],["Kung Fu Panda",2008],["Ratatouille",2007],["Cars",2006],["Madagascar",2005],["Ice Age",2002],["Happy Gilmore",1996],["The Waterboy",1998],["White Chicks",2004],["Scary Movie",2000],["Love Actually",2003],["The Notebook",2004],["The Princess Bride",1987],["Jumanji",1995],["Night at the Museum",2006],["The Polar Express",2004],["How the Grinch Stole Christmas",2000],["Hocus Pocus",1993],["Coraline",2009],["Beetlejuice",1988],["Halloween",1978],["A Quiet Place",2018],["Us",2019],["Rocky",1976],["Creed",2015],["Remember the Titans",2000]
+].map(([n,y])=>({n,y,k:'movie'})).concat([
+["Breaking Bad — Season 1",2008],["Breaking Bad — Season 5",2012],["Game of Thrones — Season 1",2011],["Game of Thrones — Season 8",2019],["The Office (US) — Season 2",2005],["Stranger Things — Season 1",2016],["Stranger Things — Season 4",2022],["The Last of Us — Season 1",2023],["Squid Game — Season 1",2021],["Wednesday — Season 1",2022],["Friends — Season 1",1994],["The Mandalorian — Season 1",2019],["The Boys — Season 1",2019],["Ted Lasso — Season 1",2020],["Euphoria — Season 1",2019],["Succession — Season 1",2018],["The Bear — Season 1",2022],["Severance — Season 1",2022],["House of the Dragon — Season 1",2022],["Avatar: The Last Airbender — Book 1",2005],["The Walking Dead — Season 1",2010],["Arcane — Season 1",2021],["Peaky Blinders — Season 1",2013],["Ozark — Season 1",2017]
+].map(([n,y])=>({n,y,k:'tv'})));
+
+const S={status:'loading',db:null,user:null,me:null,code:null,game:null,players:{},loaded:false,drafts:{},busy:false,toast:'',hist:false,lastRound:null};
+const app=document.getElementById('app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const nameOf=u=>(S.players[u]&&S.players[u].name)||'Player';
+const D=k=>esc(S.drafts[k]??'');
+
+async function init(){
+  S.drafts.name=ls.get('gts-name')||'';
+  render();
+  if(FIREBASE_CONFIG.apiKey.startsWith('PASTE')){S.status='noconfig';render();return}
+  const t=setTimeout(()=>{if(S.status==='loading'){S.status='slow';render()}},10000);
+  try{
+    const fa=initializeApp(FIREBASE_CONFIG);S.db=makeDB(getFirestore(fa));const auth=getAuth(fa);
+    S.me=await new Promise((res,rej)=>{const off=onAuthStateChanged(auth,u=>{if(u){off();res(u.uid)}});signInAnonymously(auth).catch(rej)});
+  }catch(e){clearTimeout(t);S.status='nodb';S.err=e&&e.code||'';render();return}
+  clearTimeout(t);
+  S.status='ready';
+  window.addEventListener('hashchange',fromHash);
+  fromHash();
+}
+function fromHash(){
+  const m=/^#g-([A-Z0-9]{4})$/.exec(location.hash);
+  const code=m?m[1]:null;
+  if(code!==S.code)openGame(code);else render();
+}
+function openGame(code){
+  if(S.unG)S.unG();if(S.unP)S.unP();
+  S.code=code;S.game=null;S.players={};S.loaded=false;S.hist=false;
+  if(!code){render();return}
+  ls.set('gts-last',code);
+  const lt=setTimeout(()=>{if(!S.loaded){S.toast="Can't reach the game yet. Check your connection.";render()}},10000);
+  S.unG=S.db.doc('games/'+code).onSnapshot(s=>{
+    if(!s.metadata.fromCache||s.exists){clearTimeout(lt);S.loaded=true}
+    S.game=s.exists?s.data():null;
+    if(S.game&&S.game.round!==S.lastRound){S.lastRound=S.game.round;['gc','ga','gt','ac','aa','at','search','custom','pickFor'].forEach(k=>delete S.drafts[k])}
+    render();
+  },e=>{clearTimeout(lt);S.loaded=true;S.toast='Lost connection to the game. Reopen the page.';render()});
+  S.unP=S.db.collection('games/'+code+'/players').onSnapshot(q=>{
+    const p={};q.docs.forEach(d=>{p[d.id]=d.data()});S.players=p;render();
+  },e=>{S.toast='Lost connection to the player list. Reopen the page.';render()});
+  render();
+}
+async function w(fn){
+  if(S.busy)return;S.busy=true;render();
+  try{await fn()}catch(e){
+    S.toast=(e&&e.code==='permission-denied')?"The game's database refused that move. Check the Firestore rules.":'Something went wrong. Try again.';
+  }
+  S.busy=false;render();
+}
+const gref=()=>S.db.doc('games/'+S.code);
+const pref=u=>S.db.doc('games/'+S.code+'/players/'+(u||S.me));
+function randCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<4;i++)s+=a[Math.floor(Math.random()*a.length)];return s}
+function needName(){const n=(S.drafts.name||'').trim();if(!n){S.toast='Enter your name first.';render();return null}ls.set('gts-name',n);return n.slice(0,20)}
+
+async function joinAs(code,name){
+  const p=S.db.doc('games/'+code+'/players/'+S.me);const s=await p.get();
+  if(s.exists)await p.update({name});else await p.set({name,joinedAt:Date.now(),known:{},r:{}});
+}
+
+/* ---------- game logic ---------- */
+function ctx(){
+  const g=S.game,order=g.order||[],n=order.length,R=String(g.round);
+  const k=g.round%(2*n),pickIdx=k<n?k:2*n-1-k,picker=order[pickIdx];
+  const rot=g.round%n,openOrder=order.slice(rot).concat(order.slice(0,rot));
+  const pr=u=>((S.players[u]||{}).r||{})[R]||{};
+  const guesses={};order.forEach(u=>{const x=pr(u);guesses[u]={c:x.c,a:x.a,t:x.t}});
+  let stage,calc=null;
+  if(!g.title)stage='pick';
+  else{
+    const seen=order.map(u=>pr(u).seenFor===g.title.n?pr(u).seen:null);
+    if(seen.includes(false))stage='notseen';
+    else if(seen.includes(null))stage='confirm';
+    else if(!order.every(u=>guesses[u].c!=null&&guesses[u].a!=null))stage='guess';
+    else if(!g.actual)stage='actual';
+    else{
+      calc=score(g,order,guesses);
+      if(calc.winners)stage='result';
+      else if(!calc.leaders.every(u=>guesses[u].t!=null))stage='tiebreak';
+      else if(g.actualT==null)stage='actualT';
+      else{calc=score(g,order,guesses);stage='result'}
+    }
+  }
+  return {g,order,n,R,picker,openOrder,pr,guesses,stage,calc};
+}
+function score(g,order,guesses){
+  const r={cWin:[],aWin:[],pts:{},leaders:[],tWin:[],winners:null};
+  const best=(f,act)=>{const d=u=>Math.abs(guesses[u][f]-act);const m=Math.min(...order.map(d));return order.filter(u=>d(u)===m)};
+  r.cWin=best('c',g.actual.c);r.aWin=best('a',g.actual.a);
+  order.forEach(u=>r.pts[u]=(r.cWin.includes(u)?1:0)+(r.aWin.includes(u)?1:0));
+  const mx=Math.max(...order.map(u=>r.pts[u]));
+  r.leaders=order.filter(u=>r.pts[u]===mx);
+  if(r.leaders.length===1){r.winners=r.leaders;return r}
+  if(g.actualT==null||!r.leaders.every(u=>guesses[u].t!=null))return r;
+  const d=u=>Math.round(Math.abs(guesses[u].t-g.actualT)*10);
+  const m=Math.min(...r.leaders.map(d));
+  r.tWin=r.leaders.filter(u=>d(u)===m);r.winners=r.tWin;return r;
+}
+function pool(g,extraRejected){
+  const c=g.settings.content,played=(g.history||[]).map(h=>h.title.n),rej=(g.rejected||[]).concat(extraRejected||[]);
+  return CATALOG.filter(t=>(c==='both'||(c==='movies'?t.k==='movie':t.k==='tv'))&&!played.includes(t.n)&&!rej.includes(t.n));
+}
+function appPick(g,extra){
+  const order=g.order||[];
+  const cand=pool(g,extra).filter(t=>!order.some(u=>((S.players[u]||{}).known||{})[t.n]===false));
+  if(!cand.length)return null;
+  const sc=t=>order.filter(u=>((S.players[u]||{}).known||{})[t.n]===true).length;
+  const mx=Math.max(...cand.map(sc));
+  const top=cand.filter(t=>sc(t)>=Math.max(0,mx-1));
+  return top[Math.floor(Math.random()*top.length)];
+}
+function wins(g){const w={};(g.order||[]).forEach(u=>w[u]=0);(g.history||[]).forEach(h=>(h.winners||[]).forEach(u=>w[u]=(w[u]||0)+1));return w}
+
+/* ---------- actions ---------- */
+async function act(a,ds){
+  const g=S.game;
+  if(a==='dismiss'){S.toast='';render();return}
+  if(a==='create'){const name=needName();if(!name)return;
+    return w(async()=>{let code;for(let i=0;i<6;i++){code=randCode();if(!(await S.db.doc('games/'+code).get()).exists)break}
+      await S.db.doc('games/'+code).set({code,hostId:S.me,phase:'lobby',settings:{mode:'sealed',pick:'you',content:'movies'},order:[],round:0,title:null,rejected:[],actual:null,actualT:null,history:[],created:Date.now()});
+      await joinAs(code,name);location.hash='g-'+code;})}
+  if(a==='join'){const name=needName();if(!name)return;const code=(S.drafts.code||'').trim().toUpperCase();
+    if(!/^[A-Z0-9]{4}$/.test(code)){S.toast='Game codes are 4 letters or numbers.';render();return}
+    return w(async()=>{const s=await S.db.doc('games/'+code).get();if(!s.exists){S.toast='No game with code '+code+'.';return}
+      if(s.data().phase!=='lobby'&&!(s.data().order||[]).includes(S.me)){location.hash='g-'+code;return}
+      await joinAs(code,name);location.hash='g-'+code;})}
+  if(a==='joinHere'){const name=needName();if(!name)return;return w(()=>joinAs(S.code,name))}
+  if(a==='home'){location.hash='';return}
+  if(a==='resume'){location.hash='g-'+ds.c;return}
+  if(a==='copy'){const t=location.origin+location.pathname+'#g-'+S.code;try{if(navigator.share){await navigator.share({title:'Guess the Score',text:'Join my game: code '+S.code,url:t})}else{await navigator.clipboard.writeText(t);S.toast='Invite link copied'}}catch(e){if(e&&e.name!=='AbortError')S.toast='Send this link: '+t}render();return}
+  if(a==='set')return w(()=>gref().update({settings:{[ds.k]:ds.v}}));
+  if(a==='start'){const order=Object.entries(S.players).sort((x,y)=>x[1].joinedAt-y[1].joinedAt).map(e=>e[0]);
+    if(order.length<2){S.toast='You need at least 2 players.';render();return}
+    return w(()=>gref().update({phase:'play',order,round:0,title:null,rejected:[],actual:null,actualT:null}))}
+  if(a==='known')return w(()=>pref().update({known:{[ds.n]:ds.v==='1'}}));
+  if(a==='pick'||a==='pickCustom'){
+    let t;if(a==='pick')t=CATALOG.find(x=>x.n===ds.n);else{const n=(S.drafts.custom||'').trim();if(!n){S.toast='Type a title first.';render();return}t={n:n.slice(0,80),y:null,k:S.drafts.kind==='tv'?'tv':'movie'}}
+    if(!t)return;const R=String(g.round);
+    return w(async()=>{await gref().update({title:t});await pref().update({r:{[R]:{seen:true,seenFor:t.n}},known:{[t.n]:true}})})}
+  if(a==='deal'){const t=appPick(g);if(!t){S.toast='Out of titles for this setting. Switch to "You pick" to add your own.';render();return}
+    return w(()=>gref().update({title:t}))}
+  if(a==='seen'){const R=String(g.round),v=ds.v==='1';
+    return w(()=>pref().update({r:{[R]:{seen:v,seenFor:g.title.n}},known:{[g.title.n]:v}}))}
+  if(a==='another'){const rej=(g.rejected||[]).concat([g.title.n]);
+    if(g.settings.pick==='app'){const t=appPick(g,[g.title.n]);return w(()=>gref().update({rejected:rej,title:t||null}))}
+    return w(()=>gref().update({rejected:rej,title:null}))}
+  if(a==='lock'){const c=num(S.drafts.gc,0,100,true),aa=num(S.drafts.ga,0,100,true);
+    if(c==null||aa==null){S.toast='Enter both scores as whole numbers from 0 to 100.';render();return}
+    return w(()=>pref().update({r:{[String(g.round)]:{c,a:aa}}}))}
+  if(a==='actual'){const c=num(S.drafts.ac,0,100,true),aa=num(S.drafts.aa,0,100,true);
+    if(c==null||aa==null){S.toast='Enter both real scores (0 to 100).';render();return}
+    return w(()=>gref().update({actual:{c,a:aa}}))}
+  if(a==='lockT'){const t=num(S.drafts.gt,1,10,false);if(t==null){S.toast='Enter an IMDb rating from 1.0 to 10.0.';render();return}
+    return w(()=>pref().update({r:{[String(g.round)]:{t}}}))}
+  if(a==='actualT'){const t=num(S.drafts.at,1,10,false);if(t==null){S.toast='Enter the real IMDb rating (1.0 to 10.0).';render();return}
+    return w(()=>gref().update({actualT:t}))}
+  if(a==='next'){const x=ctx();if(x.stage!=='result')return;
+    const names={},gs={};x.order.forEach(u=>{names[u]=nameOf(u);gs[u]=x.guesses[u]});
+    const entry={title:g.title,actual:g.actual,actualT:g.actualT??null,guesses:JSON.parse(JSON.stringify(gs)),names,cWin:x.calc.cWin,aWin:x.calc.aWin,tWin:x.calc.tWin,winners:x.calc.winners};
+    return w(()=>gref().update({history:(g.history||[]).concat([entry]),round:g.round+1,title:null,rejected:[],actual:null,actualT:null}))}
+  if(a==='end')return w(()=>gref().update({phase:'done'}));
+  if(a==='hist'){S.hist=!S.hist;render();return}
+}
+function num(v,lo,hi,int){if(v==null||String(v).trim()==='')return null;const x=Number(String(v).replace(',','.'));if(!isFinite(x)||x<lo||x>hi)return null;return int?Math.round(x):Math.round(x*10)/10}
+
+/* ---------- views ---------- */
+function view(){
+  if(S.status==='loading')return '<h1>Guess the Score</h1><p class="sub">Connecting…</p>';
+  if(S.status==='slow')return '<h1>Guess the Score</h1><div class="card">Still connecting. Check your connection, then reopen this page.</div>';
+  if(S.status==='noconfig')return '<h1>Guess the Score</h1><div class="card">Almost there: paste your Firebase config at the top of this file.</div>';
+  if(S.status==='nodb')return '<h1>Guess the Score</h1><div class="card">Couldn\'t connect to the game server'+(S.err?' ('+esc(S.err)+')':'')+'. Check that Anonymous sign-in is turned on in Firebase, then reload.</div>';
+  if(!S.code)return home();
+  if(!S.loaded)return '<h1>Guess the Score</h1><p class="sub">Loading game '+esc(S.code)+'…</p>';
+  if(!S.game)return '<h1>Guess the Score</h1><div class="card">No game with code <b>'+esc(S.code)+'</b>.<button data-act="home">Back</button></div>';
+  const g=S.game;
+  if(g.phase==='lobby')return lobby();
+  if(g.phase==='done')return done();
+  return play();
+}
+function home(){
+  const last=ls.get('gts-last');
+  return `<h1>Guess the Score</h1><p class="sub">Guess the critic and audience scores. Closest wins.</p>
+  <div class="card"><label for="name">Your name</label><input id="name" maxlength="20" value="${D('name')}" placeholder="e.g. Jordan" autocomplete="nickname">
+  <button class="p" data-act="create" ${S.busy?'disabled':''}>Start a new game</button></div>
+  <div class="card"><h2>Join a game</h2><label for="code">Game code</label><input id="code" maxlength="4" value="${D('code')}" placeholder="ABCD" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:4px">
+  <button data-act="join" ${S.busy?'disabled':''}>Join</button></div>
+  ${last?`<button class="s" data-act="resume" data-c="${esc(last)}">Rejoin last game (${esc(last)})</button>`:''}`;
+}
+function seg(k,cur,opts,can){return '<div class="seg">'+opts.map(([v,l])=>`<button ${can?'':'disabled'} class="${cur===v?'on':''}" data-act="set" data-k="${k}" data-v="${v}">${l}</button>`).join('')+'</div>'}
+function lobby(){
+  const g=S.game,host=g.hostId===S.me,inGame=!!S.players[S.me];
+  const ps=Object.entries(S.players).sort((a,b)=>a[1].joinedAt-b[1].joinedAt);
+  let h=`<h1>Lobby</h1><p class="sub">Send your friends the invite link. Anyone with it can join.</p>
+  <div class="card"><div class="code">${esc(S.code)}</div><button class="s" data-act="copy" style="display:block;margin:6px auto 0">Send invite link</button></div>`;
+  if(!inGame)h+=`<div class="card"><label for="name">Your name</label><input id="name" maxlength="20" value="${D('name')}"><button class="p" data-act="joinHere" ${S.busy?'disabled':''}>Join this game</button></div>`;
+  h+=`<div class="card"><h2>Players (${ps.length})</h2>${ps.map(([u,p])=>`<div class="pl"><span>${esc(p.name)}${u===S.me?' (you)':''}</span>${u===g.hostId?'<span class="tag">host</span>':''}</div>`).join('')||'<p class="sub">Nobody yet.</p>'}</div>`;
+  h+=`<div class="card"><h2>Settings</h2>${host?'':'<p class="sub">The host sets these.</p>'}
+  <label>Who picks</label>${seg('pick',g.settings.pick,[['you','You pick'],['app','App picks']],host)}
+  <label>Guessing</label>${seg('mode',g.settings.mode,[['sealed','Sealed'],['open','Open']],host)}
+  <label>What's in play</label>${seg('content',g.settings.content,[['movies','Movies'],['tv','TV seasons'],['both','Both']],host)}
+  ${host?`<button class="p" data-act="start" ${S.busy||ps.length<2?'disabled':''}>Start game</button>${ps.length<2?'<p class="muted">Waiting for at least one more player.</p>':''}`:'<p class="muted">Waiting for the host to start.</p>'}</div>`;
+  if(inGame)h+=swipe();
+  return h;
+}
+function swipe(){
+  const g=S.game,known=(S.players[S.me]||{}).known||{},c=g.settings.content;
+  const list=CATALOG.filter(t=>c==='both'||(c==='movies'?t.k==='movie':t.k==='tv'));
+  const done=list.filter(t=>known[t.n]!==undefined).length,t=list.find(t=>known[t.n]===undefined);
+  if(!t)return `<div class="card"><h2>Quick swipe</h2><p class="sub">You've gone through all ${list.length} titles.</p></div>`;
+  return `<div class="card"><h2>Quick swipe while you wait</h2><p class="sub">Helps the app suggest titles everyone has seen. ${done} done.</p>
+  <div class="poster"><div class="title">${esc(t.n)}</div><div class="sub">${t.y||''}</div></div>
+  <div class="big2"><button data-act="known" data-n="${esc(t.n)}" data-v="0" ${S.busy?'disabled':''}>Not seen</button><button class="p" data-act="known" data-n="${esc(t.n)}" data-v="1" ${S.busy?'disabled':''}>Seen it</button></div></div>`;
+}
+function standings(g){const w=wins(g);return '<div class="stand">'+(g.order||[]).slice().sort((a,b)=>w[b]-w[a]).map(u=>`<div>${esc(nameOf(u))} <b>${w[u]}</b></div>`).join('')+'</div>'}
+function grid(title,order,names,gs,actual,actualT,calc,showT){
+  const W=calc&&calc.winners||[];
+  const cell=(v,win)=>`<td class="${win?'w':''}">${v==null?'':esc(v)}</td>`;
+  return `<table><tr><th>${esc(title)}</th><th>C</th><th>A</th>${showT?'<th>T</th>':''}</tr>
+  ${order.map(u=>`<tr><td class="nm ${W.includes(u)?'w':''}">${esc(names(u))}</td>${cell(gs[u].c,calc&&calc.cWin.includes(u))}${cell(gs[u].a,calc&&calc.aWin.includes(u))}${showT?cell(gs[u].t,calc&&calc.tWin.includes(u)):''}</tr>`).join('')}
+  <tr class="ans"><td>Answer</td><td>${actual?actual.c:'?'}</td><td>${actual?actual.a:'?'}</td>${showT?`<td>${actualT??''}</td>`:''}</tr></table>`;
+}
+const rtLink=t=>`<a href="https://www.rottentomatoes.com/search?search=${encodeURIComponent(t.n.replace(/ — .*/,''))}" target="_blank" rel="noopener">Look it up on Rotten Tomatoes</a>`;
+const imdbLink=t=>`<a href="https://www.imdb.com/find/?q=${encodeURIComponent(t.n.replace(/ — .*/,''))}" target="_blank" rel="noopener">Look it up on IMDb</a>`;
+function play(){
+  const x=ctx(),g=x.g,me=S.me,inGame=x.order.includes(me),B=S.busy?'disabled':'';
+  let h=`<div class="row" style="align-items:center"><div><h1>Round ${g.round+1}</h1><p class="sub">${g.settings.mode==='sealed'?'Sealed':'Open'} · ${g.settings.pick==='you'?'You pick':'App picks'} · code ${esc(S.code)}</p></div>
+  <div style="flex:0"><button class="s" data-act="hist">${S.hist?'Hide':'Rounds'}</button></div></div>${standings(g)}`;
+  if(!inGame)h+='<p class="muted">You\'re watching. This game started before you joined.</p>';
+  if(S.hist)h+=history(g);
+  const T=g.title;
+  if(x.stage==='pick'){
+    if(g.settings.pick==='app'){
+      h+=`<div class="card"><h2>Next title</h2><p class="sub">The app picks a title it thinks everyone has seen.</p>${inGame?`<button class="p" data-act="deal" ${B}>Deal a title</button>`:''}</div>`;
+    }else{
+      const mine=x.picker===me;
+      h+=`<div class="card"><h2>${mine?'Your pick':esc(nameOf(x.picker))+' is picking'}</h2>`;
+      if(mine||S.drafts.pickFor){
+        const q=(S.drafts.search||'').toLowerCase();
+        const items=pool(g).filter(t=>!q||t.n.toLowerCase().includes(q)).slice(0,40);
+        h+=`<p class="sub">Choose something you think everyone has seen.</p><input id="search" value="${D('search')}" placeholder="Search titles" autocomplete="off">
+        <div class="list">${items.map(t=>`<div class="li" data-act="pick" data-n="${esc(t.n)}"><span>${esc(t.n)}</span><small>${t.y||''}</small></div>`).join('')||'<p class="sub">No matches in the list. Add it below.</p>'}</div>
+        <label for="custom">Not in the list?</label><input id="custom" value="${D('custom')}" placeholder="Title (add 'Season 2' for TV)">
+        <div class="seg" style="margin-top:8px"><button class="${S.drafts.kind!=='tv'?'on':''}" data-act="kind" data-v="movie">Movie</button><button class="${S.drafts.kind==='tv'?'on':''}" data-act="kind" data-v="tv">TV season</button></div>
+        <button class="p" data-act="pickCustom" ${B}>Use this title</button>`;
+      }else h+=`<p class="sub">Waiting for their pick.</p>${inGame?'<button class="s" data-act="pickFor">Pick for them</button>':''}`;
+      h+='</div>';
+    }
+    if(g.rejected&&g.rejected.length)h+=`<p class="muted">Skipped this round (not everyone had seen): ${g.rejected.map(esc).join(', ')}</p>`;
+  }
+  if(T&&['confirm','notseen'].includes(x.stage)){
+    const mySeen=x.pr(me).seenFor===T.n?x.pr(me).seen:null;
+    h+=`<div class="card"><div class="poster"><div class="title">${esc(T.n)}</div><div class="sub">${T.y||''} ${T.k==='tv'?'· TV':''}</div></div>`;
+    if(x.stage==='notseen'){
+      const nope=x.order.filter(u=>x.pr(u).seenFor===T.n&&x.pr(u).seen===false).map(nameOf);
+      h+=`<p class="banner">${esc(nope.join(' and '))} ${nope.length>1?"haven't":"hasn't"} seen it</p>${inGame?`<button class="p" data-act="another" ${B}>${g.settings.pick==='app'?'Deal another':'Pick another'}</button>`:''}`;
+    }else{
+      if(inGame&&mySeen==null)h+=`<h2 style="text-align:center;margin-top:14px">Have you seen it?</h2><div class="big2"><button data-act="seen" data-v="0" ${B}>Nope</button><button class="p" data-act="seen" data-v="1" ${B}>Seen it</button></div>`;
+      h+=x.order.map(u=>{const p=x.pr(u),v=p.seenFor===T.n?p.seen:null;return `<div class="pl"><span>${esc(nameOf(u))}</span><span class="${v?'ok':''}">${v?'Seen it':'Waiting'}</span></div>`}).join('');
+    }
+    h+='</div>';
+  }
+  if(x.stage==='guess'){
+    h+=`<div class="card"><div class="title">${esc(T.n)}</div>`;
+    const my=x.guesses[me]||{},locked=my.c!=null;
+    if(g.settings.mode==='sealed'){
+      if(inGame&&!locked)h+=guessForm();
+      h+=`<p class="sub" style="margin-top:12px">Guesses stay hidden until everyone locks in.</p>`+x.order.map(u=>`<div class="pl"><span>${esc(nameOf(u))}</span><span class="${x.guesses[u].c!=null?'ok':''}">${x.guesses[u].c!=null?'Locked in':'Thinking…'}</span></div>`).join('');
+    }else{
+      const cur=x.openOrder.find(u=>x.guesses[u].c==null);
+      h+=`<p class="sub">Open guessing. Order this round: ${x.openOrder.map(u=>esc(nameOf(u))).join(' → ')}</p>`;
+      h+=x.openOrder.map(u=>`<div class="pl"><span>${esc(nameOf(u))}${u===cur?' ← up now':''}</span><span>${x.guesses[u].c!=null?'C '+x.guesses[u].c+' · A '+x.guesses[u].a:''}</span></div>`).join('');
+      if(cur===me)h+=guessForm();else h+=`<p class="muted">Waiting for ${esc(nameOf(cur))}.</p>`;
+    }
+    h+='</div>';
+  }
+  if(['actual','tiebreak','actualT','result'].includes(x.stage)){
+    const showT=!!(x.calc&&x.calc.leaders.length>1);
+    const hideT=x.stage==='tiebreak';
+    const gs={};x.order.forEach(u=>gs[u]={c:x.guesses[u].c,a:x.guesses[u].a,t:hideT?(x.guesses[u].t!=null&&x.calc.leaders.includes(u)?'✓':null):x.guesses[u].t});
+    h+=`<div class="card">${grid(T.n,x.order,nameOf,gs,g.actual,g.actualT,x.stage==='actual'?null:x.calc,showT)}`;
+    if(x.stage==='actual'){
+      h+=`<h2 style="margin-top:16px">Enter the real scores</h2><p class="sub">${rtLink(T)}. Anyone can enter them.</p>
+      <div class="row"><div><label for="ac">Critic %</label><input id="ac" inputmode="numeric" value="${D('ac')}"></div><div><label for="aa">Audience %</label><input id="aa" inputmode="numeric" value="${D('aa')}"></div></div>
+      <button class="p" data-act="actual" ${B}>Reveal winner</button>`;
+    }
+    if(x.stage==='tiebreak'){
+      const L=x.calc.leaders;
+      h+=`<p class="banner">Tie! ${L.map(u=>esc(nameOf(u))).join(' vs ')} guess the IMDb rating</p>`;
+      if(L.includes(me)&&x.guesses[me].t==null)h+=`<label for="gt">Your IMDb guess (1.0 to 10.0)</label><input id="gt" inputmode="decimal" value="${D('gt')}"><button class="p" data-act="lockT" ${B}>Lock in</button>`;
+      else h+=`<p class="muted">Waiting for ${L.filter(u=>x.guesses[u].t==null).map(u=>esc(nameOf(u))).join(', ')}.</p>`;
+    }
+    if(x.stage==='actualT'){
+      h+=`<h2 style="margin-top:16px">Enter the real IMDb rating</h2><p class="sub">${imdbLink(T)}</p><input id="at" inputmode="decimal" value="${D('at')}"><button class="p" data-act="actualT" ${B}>Reveal winner</button>`;
+    }
+    if(x.stage==='result'){
+      const W=x.calc.winners;
+      h+=`<p class="banner">${W.map(u=>esc(nameOf(u))).join(' & ')} ${W.length>1?'share the round':'wins the round'}</p>`;
+      if(inGame)h+=`<button class="p" data-act="next" ${B}>Next round</button>`;
+    }
+    h+='</div>';
+  }
+  if(g.hostId===me)h+=`<button class="s" data-act="end" style="margin-top:18px">End game</button>`;
+  h+=`<p class="muted"><a href="#" data-act="home">Leave this screen</a></p>`;
+  return h;
+}
+function guessForm(){return `<div class="row"><div><label for="gc">Critic %</label><input id="gc" inputmode="numeric" value="${D('gc')}" placeholder="0–100"></div><div><label for="ga">Audience %</label><input id="ga" inputmode="numeric" value="${D('ga')}" placeholder="0–100"></div></div><button class="p" data-act="lock" ${S.busy?'disabled':''}>Lock in</button>`}
+function history(g){
+  const H=g.history||[];if(!H.length)return '<div class="card"><p class="sub">No finished rounds yet.</p></div>';
+  return H.slice().reverse().map(e=>{const order=Object.keys(e.guesses);const showT=(e.tWin||[]).length>0;
+    return '<div class="card">'+grid(e.title.n,order,u=>e.names[u]||'Player',e.guesses,e.actual,e.actualT,{cWin:e.cWin||[],aWin:e.aWin||[],tWin:e.tWin||[],winners:e.winners||[]},showT)+'</div>'}).join('');
+}
+function done(){const g=S.game,w=wins(g),top=Math.max(0,...Object.values(w)),champs=(g.order||[]).filter(u=>w[u]===top&&top>0);
+  return `<h1>Game over</h1>${champs.length?`<p class="banner">${champs.map(u=>esc(nameOf(u))).join(' & ')} ${champs.length>1?'tie':'wins'} with ${top}</p>`:''}${standings(g)}${history(g)}<button class="p" data-act="home">New game</button>`}
+
+function render(){
+  const a=document.activeElement,id=a&&a.id;let ss=null,se=null;try{ss=a.selectionStart;se=a.selectionEnd}catch(e){}
+  app.innerHTML=view()+(S.toast?`<div class="toast"><span>${esc(S.toast)}</span><button class="s" data-act="dismiss">OK</button></div>`:'');
+  if(id){const el=document.getElementById(id);if(el){el.focus();try{if(ss!=null)el.setSelectionRange(ss,se)}catch(e){}}}
+}
+app.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;e.preventDefault();
+  const a=b.dataset.act;
+  if(a==='kind'){S.drafts.kind=b.dataset.v;render();return}
+  if(a==='pickFor'){S.drafts.pickFor=true;render();return}
+  act(a,b.dataset)});
+app.addEventListener('input',e=>{const t=e.target;if(!t.id)return;S.drafts[t.id]=t.value;if(t.id==='search')render()});
+app.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.id)return;const m={name:S.code?'joinHere':'create',code:'join',ga:'lock',gc:'lock',aa:'actual',ac:'actual',gt:'lockT',at:'actualT',custom:'pickCustom'}[e.target.id];if(m){e.preventDefault();act(m,{})}});
+init();
+</script>
+</body>
+</html>
